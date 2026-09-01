@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>佳林國中教職員營養午餐收據管理系統</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx) for Excel processing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter & Noto Sans TC -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Print Specific Styles */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 3mm 5mm;
+            }
+            .no-print {
+                display: none !important;
+            }
+            body {
+                background-color: #ffffff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                font-size: 11pt !important;
+            }
+            .print-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+            }
+            /* 強制取消畫面上 space-y-6 在列印時產生的額外大間距 */
+            .print-container > * {
+                margin-top: 0 !important;
+            }
+            .receipt-card {
+                page-break-inside: avoid;
+                break-inside: avoid;
+                border: 1.5px solid #000 !important;
+                margin-bottom: 1.5mm !important; /* 緊密化每張收據垂直間距 */
+                padding: 3px 5px !important;
+                height: 54mm !important; /* 5 張收據 (54mm*5 = 270mm + 6mm間距) 完美容納於 A4 高度 297mm */
+                box-sizing: border-box !important;
+                overflow: hidden !important;
+            }
+            .receipt-card:last-child {
+                margin-bottom: 0 !important;
+            }
+            .dashed-line {
+                border-left: 1.5px dashed #000 !important;
+            }
+        }
+
+        /* Custom Receipt Text Formatting */
+        .receipt-text {
+            font-size: 11pt;
+            line-height: 1.15;
+        }
+        .receipt-title {
+            font-size: 12pt;
+            line-height: 1.12;
+        }
+        .receipt-subtext {
+            font-size: 9pt;
+            line-height: 1.12;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-800 flex flex-col">
+
+    <!-- Header (Hidden on print) -->
+    <header class="bg-blue-900 text-white shadow-md no-print">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row justify-between items-center gap-3">
+            <div class="flex items-center space-x-3">
+                <div class="bg-white p-2 rounded-lg text-blue-900">
+                    <i class="fa-solid fa-utensils text-2xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide">佳林國中教職員營養午餐收據管理系統</h1>
+                    <p class="text-blue-200 text-xs">Jialin Junior High School Lunch Fee Receipt Generator</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="loadDemoData()" class="bg-blue-700 hover:bg-blue-600 text-white text-sm px-3 py-2 rounded-md transition flex items-center gap-1 shadow-sm">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> 載入測試資料
+                </button>
+                <button onclick="triggerPrint()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm px-4 py-2 rounded-md font-semibold transition flex items-center gap-1 shadow-md">
+                    <i class="fa-solid fa-print"></i> 列印 / 另存PDF
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto w-full px-4 py-6 flex-grow space-y-6">
+
+        <!-- Controls Panel (Hidden on print) -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 no-print">
+            <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2">
+                <i class="fa-solid fa-sliders text-blue-600"></i> 全域收據資訊與格式設定
+            </h2>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                <!-- Period Start -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">期程開始 (民國)</label>
+                    <div class="flex gap-1 items-center">
+                        <input type="number" id="startYear" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="115">
+                        <span class="text-xs text-gray-500">年</span>
+                        <input type="number" id="startMonth" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="9" min="1" max="12">
+                        <span class="text-xs text-gray-500">月</span>
+                    </div>
+                </div>
+
+                <!-- Period End -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">期程結束 (民國)</label>
+                    <div class="flex gap-1 items-center">
+                        <input type="number" id="endYear" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="116">
+                        <span class="text-xs text-gray-500">年</span>
+                        <input type="number" id="endMonth" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="1" min="1" max="12">
+                        <span class="text-xs text-gray-500">月</span>
+                    </div>
+                </div>
+
+                <!-- Salary Deduction Date -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">薪資扣款預設日期</label>
+                    <div class="flex gap-1 items-center">
+                        <input type="number" id="deductYear" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="115">
+                        <span class="text-xs text-gray-500">年</span>
+                        <input type="number" id="deductMonth" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="9" min="1" max="12">
+                        <span class="text-xs text-gray-500">月</span>
+                        <input type="number" id="deductDay" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="5" min="1" max="31">
+                        <span class="text-xs text-gray-500">日</span>
+                    </div>
+                </div>
+
+                <!-- Cash Payment Date -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">現金繳納預設日期</label>
+                    <div class="flex gap-1 items-center">
+                        <input type="number" id="cashYear" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="115">
+                        <span class="text-xs text-gray-500">年</span>
+                        <input type="number" id="cashMonth" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="9" min="1" max="12">
+                        <span class="text-xs text-gray-500">月</span>
+                        <input type="number" id="cashDay" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="10" min="1" max="31">
+                        <span class="text-xs text-gray-500">日</span>
+                    </div>
+                </div>
+
+                <!-- Handler Name -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">經手人</label>
+                    <input type="text" id="handlerName" class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="出納組" placeholder="例如：出納組">
+                </div>
+
+                <!-- Right Bottom Note -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">右下角標註 (自訂/可留空)</label>
+                    <input type="text" id="rightBottomNote" class="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="" placeholder="例如：佳林國中印章 (可留空)">
+                </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap justify-between items-center text-xs text-gray-500 gap-2">
+                <span><i class="fa-solid fa-circle-info text-blue-500 mr-1"></i>系統已最佳化為 <span class="font-bold text-gray-700">A4 每頁精準列印 5 張 (共 10 聯左右對稱)</span>，可設定現金繳納/扣款個別日期。</span>
+                <button onclick="updateAllReceipts()" class="bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold px-3 py-1 rounded transition">
+                    重新同步設定
+                </button>
+            </div>
+        </div>
+
+        <!-- Upload & Data Table Section (Hidden on print) -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 no-print">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+                <div>
+                    <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fa-solid fa-file-excel text-emerald-600"></i> 教職員清單資料匯入
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">請上傳包含 <span class="font-bold text-gray-700">「姓名」</span> 與 <span class="font-bold text-gray-700">「費用」</span> 欄位的 Excel 檔 (.xlsx / .xls / .csv)</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="downloadSampleExcel()" class="text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded transition flex items-center gap-1">
+                        <i class="fa-solid fa-download"></i> 下載 Excel 範例檔
+                    </button>
+                    <button onclick="addNewRow()" class="text-xs text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded transition flex items-center gap-1">
+                        <i class="fa-solid fa-plus"></i> 手動新增單筆
+                    </button>
+                </div>
+            </div>
+
+            <!-- Upload Area -->
+            <div id="dropZone" class="border-2 border-dashed border-gray-300 hover:border-blue-500 rounded-lg p-6 text-center cursor-pointer transition bg-gray-50 hover:bg-blue-50/50">
+                <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="hidden" onchange="handleFileUpload(event)">
+                <div class="space-y-2">
+                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-gray-400"></i>
+                    <div class="text-sm font-medium text-gray-700">
+                        點擊選擇 Excel 檔案 或 將檔案拖曳至此區域
+                    </div>
+                    <p class="text-xs text-gray-400">支援 .xlsx, .xls, .csv 檔案格式</p>
+                </div>
+            </div>
+
+            <!-- Data Summary & Editing Table -->
+            <div id="dataListContainer" class="mt-6 hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-bold text-gray-700">
+                        已匯入人員 (<span id="totalCount">0</span> 人)
+                    </span>
+                    <button onclick="clearAllData()" class="text-xs text-red-600 hover:text-red-800 transition">
+                        <i class="fa-solid fa-trash-can mr-1"></i>清空所有成員
+                    </button>
+                </div>
+
+                <div class="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead class="bg-gray-100 text-gray-600 sticky top-0 z-10 border-b border-gray-200">
+                            <tr>
+                                <th class="p-2.5">#</th>
+                                <th class="p-2.5">姓名</th>
+                                <th class="p-2.5">稱謂</th>
+                                <th class="p-2.5">繳費方式</th>
+                                <th class="p-2.5">個別繳費/扣款日期 <span class="text-[10px] text-gray-400 font-normal">(留空套用預設)</span></th>
+                                <th class="p-2.5">應繳金額 (元)</th>
+                                <th class="p-2.5">中文大寫金額</th>
+                                <th class="p-2.5 text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="memberTableBody" class="divide-y divide-gray-100 bg-white">
+                            <!-- JS dynamic rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Receipt View Tabs & Controls -->
+        <div class="flex justify-between items-center border-b border-gray-200 pb-2 no-print">
+            <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <i class="fa-solid fa-receipt text-indigo-600"></i> 收據單據預覽 (含存根聯與收執聯)
+            </h2>
+            <div class="text-xs text-gray-500">
+                每張列印頁包含 左右雙聯，適合 A4 格式列印
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="bg-white rounded-xl p-12 text-center text-gray-400 border border-gray-200 no-print">
+            <i class="fa-regular fa-folder-open text-5xl mb-3 text-gray-300"></i>
+            <p class="text-base font-medium text-gray-600">目前尚無收據資料</p>
+            <p class="text-xs text-gray-400 mt-1">請上傳 Excel 檔案或點擊「載入測試資料」開始生成收據。</p>
+        </div>
+
+        <!-- Receipts Grid Output (Rendered for view and print) -->
+        <div id="receiptsOutput" class="space-y-6 print-container">
+            <!-- Dynamic receipts generated by JS will be injected here -->
+        </div>
+
+    </main>
+
+    <!-- Custom Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white text-sm px-4 py-3 rounded-lg shadow-xl hidden transition-all duration-300 z-50 flex items-center gap-2 no-print">
+        <i id="toastIcon" class="fa-solid fa-circle-info text-blue-400"></i>
+        <span id="toastMsg">通知訊息</span>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirmModal" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4">
+            <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <i class="fa-solid fa-triangle-exclamation text-amber-500"></i> 確認清空資料
+            </h3>
+            <p class="text-sm text-gray-600">確定要清空所有已匯入的教職員與收據資料嗎？此動作無法復原。</p>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="closeConfirmModal()" class="px-3 py-1.5 text-xs text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition font-medium">取消</button>
+                <button onclick="confirmClearAll()" class="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded font-semibold transition">確認清空</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data State
+        let members = [];
+
+        // DOM Ready
+        document.addEventListener("DOMContentLoaded", () => {
+            setupDragAndDrop();
+            
+            // Listen to inputs for dynamic updates
+            const inputs = ['startYear', 'startMonth', 'endYear', 'endMonth', 'deductYear', 'deductMonth', 'deductDay', 'cashYear', 'cashMonth', 'cashDay', 'handlerName', 'rightBottomNote'];
+            inputs.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.addEventListener('input', renderReceipts);
+            });
+        });
+
+        /**
+         * Convert Numbers into Traditional Chinese Upper Case Currency
+         * Example: 1200 -> 壹仟貳佰
+         */
+        function numberToChineseUpper(n) {
+            if (n === '' || isNaN(n) || n === null) return '零';
+            n = Math.floor(Math.abs(Number(n)));
+            if (n === 0) return '零';
+
+            const digits = ['零', '壹', '貳', '參', '肆', '伍', '陸', '柒', '捌', '玖'];
+            const units = ['', '拾', '佰', '仟'];
+            const bigUnits = ['', '萬', '億'];
+
+            let str = n.toString();
+            let result = '';
+            let groupCount = 0;
+
+            while (str.length > 0) {
+                let section = str.slice(-4);
+                str = str.slice(0, -4);
+
+                let sectionStr = '';
+                let zeroFlag = false;
+
+                for (let i = 0; i < section.length; i++) {
+                    let digit = parseInt(section[i]);
+                    let pos = section.length - 1 - i;
+
+                    if (digit !== 0) {
+                        if (zeroFlag) {
+                            sectionStr += '零';
+                            zeroFlag = false;
+                        }
+                        sectionStr += digits[digit] + units[pos];
+                    } else {
+                        zeroFlag = true;
+                    }
+                }
+
+                if (sectionStr.length > 0) {
+                    result = sectionStr + bigUnits[groupCount] + result;
+                }
+                groupCount++;
+            }
+
+            return result || '零';
+        }
+
+        // Setup Drag & Drop
+        function setupDragAndDrop() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('excelFileInput');
+
+            dropZone.addEventListener('click', () => fileInput.click());
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('border-blue-500', 'bg-blue-50');
+                });
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropZone.addEventListener(eventName, (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+                });
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    processFile(files[0]);
+                }
+            });
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) processFile(file);
+        }
+
+        function processFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
+
+                    if (json.length === 0) {
+                        showToast('上傳的 Excel 檔案內無資料！', 'error');
+                        return;
+                    }
+
+                    // Parse members from sheet
+                    const newMembers = [];
+                    json.forEach((row, index) => {
+                        const nameKey = Object.keys(row).find(k => k.trim().includes('姓名') || k.trim().toLowerCase().includes('name'));
+                        const feeKey = Object.keys(row).find(k => k.trim().includes('費用') || k.trim().includes('金額') || k.trim().toLowerCase().includes('fee') || k.trim().toLowerCase().includes('amount'));
+                        const methodKey = Object.keys(row).find(k => k.trim().includes('方式') || k.trim().includes('繳費'));
+                        const dateKey = Object.keys(row).find(k => k.trim().includes('日期'));
+
+                        const name = nameKey ? String(row[nameKey]).trim() : `教職員${index + 1}`;
+                        const fee = feeKey ? Number(row[feeKey]) || 0 : 0;
+                        const title = row['稱謂'] || '老師';
+                        
+                        let paymentType = 'deduct';
+                        if (methodKey && String(row[methodKey]).includes('現金')) {
+                            paymentType = 'cash';
+                        }
+
+                        let payYear = '', payMonth = '', payDay = '';
+                        if (dateKey && row[dateKey]) {
+                            const dateStr = String(row[dateKey]);
+                            const matches = dateStr.match(/\d+/g);
+                            if (matches && matches.length >= 3) {
+                                payYear = matches[0];
+                                payMonth = matches[1];
+                                payDay = matches[2];
+                            }
+                        }
+
+                        newMembers.push({
+                            id: Date.now() + index + Math.random(),
+                            name: name,
+                            title: title,
+                            fee: fee,
+                            paymentType: paymentType,
+                            payYear: payYear,
+                            payMonth: payMonth,
+                            payDay: payDay
+                        });
+                    });
+
+                    members = newMembers;
+                    renderTable();
+                    renderReceipts();
+                    showToast(`成功匯入 ${newMembers.length} 筆教職員資料！`, 'success');
+
+                } catch (err) {
+                    showToast('讀取 Excel 檔案失敗，請確認格式是否正確。', 'error');
+                    console.error(err);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function loadDemoData() {
+            members = [
+                { id: 1, name: '張哲銘', title: '老師', fee: 1250, paymentType: 'deduct', payYear: '', payMonth: '', payDay: '' },
+                { id: 2, name: '林雅婷', title: '老師', fee: 1250, paymentType: 'deduct', payYear: '', payMonth: '', payDay: '' },
+                { id: 3, name: '陳建志', title: '先生', fee: 1200, paymentType: 'cash', payYear: '115', payMonth: '9', payDay: '12' },
+                { id: 4, name: '黃淑惠', title: '小姐', fee: 1250, paymentType: 'deduct', payYear: '', payMonth: '', payDay: '' },
+                { id: 5, name: '王大同', title: '老師', fee: 1300, paymentType: 'cash', payYear: '', payMonth: '', payDay: '' }
+            ];
+            renderTable();
+            renderReceipts();
+            showToast('已載入預設測試資料（5筆）', 'success');
+        }
+
+        function downloadSampleExcel() {
+            const sampleData = [
+                { "姓名": "張哲銘", "費用": 1250, "稱謂": "老師", "繳費方式": "薪資扣款", "日期": "115/09/05" },
+                { "姓名": "林雅婷", "費用": 1250, "稱謂": "老師", "繳費方式": "薪資扣款", "日期": "115/09/05" },
+                { "姓名": "陳建志", "費用": 1200, "稱謂": "先生", "繳費方式": "現金繳納", "日期": "115/09/12" },
+                { "姓名": "黃淑惠", "費用": 1250, "稱謂": "小姐", "繳費方式": "薪資扣款", "日期": "115/09/05" }
+            ];
+            const ws = XLSX.utils.json_to_sheet(sampleData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "教職員午餐費清單");
+            XLSX.writeFile(wb, "佳林國中營養午餐費匯入範例.xlsx");
+        }
+
+        // Member Data Manipulations
+        function addNewRow() {
+            members.push({
+                id: Date.now(),
+                name: '新教職員',
+                title: '老師',
+                fee: 1200,
+                paymentType: 'deduct',
+                payYear: '',
+                payMonth: '',
+                payDay: ''
+            });
+            renderTable();
+            renderReceipts();
+        }
+
+        function removeMember(id) {
+            members = members.filter(m => m.id !== id);
+            renderTable();
+            renderReceipts();
+        }
+
+        // Clear All Members Modal Trigger
+        function clearAllData() {
+            if (members.length === 0) {
+                showToast('目前清單中已無成員資料', 'info');
+                return;
+            }
+            const modal = document.getElementById('confirmModal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            const modal = document.getElementById('confirmModal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function confirmClearAll() {
+            members = [];
+            renderTable();
+            renderReceipts();
+            closeConfirmModal();
+            showToast('已清空所有成員資料', 'success');
+        }
+
+        // Re-sync Global Settings Function
+        function updateAllReceipts() {
+            renderTable();
+            renderReceipts();
+            showToast('已將最新全域設定套用至所有收據！', 'success');
+        }
+
+        // Toast Message Notification Helper
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const msgEl = document.getElementById('toastMsg');
+            const iconEl = document.getElementById('toastIcon');
+            if (!toast || !msgEl || !iconEl) return;
+
+            msgEl.innerText = message;
+            if (type === 'error') {
+                iconEl.className = 'fa-solid fa-circle-exclamation text-red-400';
+            } else if (type === 'success') {
+                iconEl.className = 'fa-solid fa-circle-check text-emerald-400';
+            } else {
+                iconEl.className = 'fa-solid fa-circle-info text-blue-400';
+            }
+
+            toast.classList.remove('hidden');
+            
+            setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        function updateMember(id, field, value) {
+            const member = members.find(m => m.id === id);
+            if (member) {
+                if (field === 'fee') value = Number(value) || 0;
+                member[field] = value;
+                renderTable();
+                renderReceipts();
+            }
+        }
+
+        function renderTable() {
+            const container = document.getElementById('dataListContainer');
+            const tbody = document.getElementById('memberTableBody');
+            const totalCount = document.getElementById('totalCount');
+
+            if (members.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            container.classList.remove('hidden');
+            totalCount.innerText = members.length;
+
+            tbody.innerHTML = members.map((m, index) => `
+                <tr class="hover:bg-gray-50">
+                    <td class="p-2.5 text-gray-400 font-mono">${index + 1}</td>
+                    <td class="p-2.5">
+                        <input type="text" class="border border-gray-200 rounded px-2 py-1 w-24 focus:ring-1 focus:ring-blue-500" 
+                               value="${m.name}" onchange="updateMember(${m.id}, 'name', this.value)">
+                    </td>
+                    <td class="p-2.5">
+                        <select class="border border-gray-200 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-blue-500"
+                                onchange="updateMember(${m.id}, 'title', this.value)">
+                            <option value="老師" ${m.title === '老師' ? 'selected' : ''}>老師</option>
+                            <option value="先生" ${m.title === '先生' ? 'selected' : ''}>先生</option>
+                            <option value="小姐" ${m.title === '小姐' ? 'selected' : ''}>小姐</option>
+                        </select>
+                    </td>
+                    <td class="p-2.5">
+                        <select class="border border-gray-200 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-blue-500 font-medium ${m.paymentType === 'cash' ? 'text-amber-700 font-bold' : 'text-blue-700'}"
+                                onchange="updateMember(${m.id}, 'paymentType', this.value)">
+                            <option value="deduct" ${m.paymentType === 'deduct' ? 'selected' : ''}>薪資扣款</option>
+                            <option value="cash" ${m.paymentType === 'cash' ? 'selected' : ''}>現金繳納</option>
+                        </select>
+                    </td>
+                    <td class="p-2.5">
+                        <div class="flex items-center gap-1 text-xs">
+                            <input type="number" class="w-12 border border-gray-200 rounded px-1 py-1 text-center focus:ring-1 focus:ring-blue-500"
+                                   placeholder="年" value="${m.payYear || ''}" onchange="updateMember(${m.id}, 'payYear', this.value)">
+                            <span>/</span>
+                            <input type="number" class="w-10 border border-gray-200 rounded px-1 py-1 text-center focus:ring-1 focus:ring-blue-500"
+                                   placeholder="月" value="${m.payMonth || ''}" onchange="updateMember(${m.id}, 'payMonth', this.value)">
+                            <span>/</span>
+                            <input type="number" class="w-10 border border-gray-200 rounded px-1 py-1 text-center focus:ring-1 focus:ring-blue-500"
+                                   placeholder="日" value="${m.payDay || ''}" onchange="updateMember(${m.id}, 'payDay', this.value)">
+                        </div>
+                    </td>
+                    <td class="p-2.5">
+                        <input type="number" class="border border-gray-200 rounded px-2 py-1 w-24 font-mono text-right focus:ring-1 focus:ring-blue-500" 
+                               value="${m.fee}" onchange="updateMember(${m.id}, 'fee', this.value)">
+                    </td>
+                    <td class="p-2.5 font-semibold text-blue-900">
+                        ${numberToChineseUpper(m.fee)} 元整
+                    </td>
+                    <td class="p-2.5 text-center">
+                        <button onclick="removeMember(${m.id})" class="text-red-500 hover:text-red-700 px-2 py-1">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Get Current System Inputs
+        function getSystemParams() {
+            return {
+                startYear: document.getElementById('startYear').value || '___',
+                startMonth: document.getElementById('startMonth').value || '__',
+                endYear: document.getElementById('endYear').value || '___',
+                endMonth: document.getElementById('endMonth').value || '__',
+                deductYear: document.getElementById('deductYear').value || '___',
+                deductMonth: document.getElementById('deductMonth').value || '__',
+                deductDay: document.getElementById('deductDay').value || '__',
+                cashYear: document.getElementById('cashYear').value || '___',
+                cashMonth: document.getElementById('cashMonth').value || '__',
+                cashDay: document.getElementById('cashDay').value || '__',
+                handlerName: document.getElementById('handlerName').value || '________',
+                rightBottomNote: document.getElementById('rightBottomNote').value || ''
+            };
+        }
+
+        /**
+         * Render All Receipt Cards with Left (Stub) and Right (Recipient) Layout
+         */
+        function renderReceipts() {
+            const container = document.getElementById('receiptsOutput');
+            const emptyState = document.getElementById('emptyState');
+            const params = getSystemParams();
+
+            if (members.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+
+            container.innerHTML = members.map((m) => {
+                const chineseFee = numberToChineseUpper(m.fee);
+
+                // Determine final display date
+                const payY = m.payYear || (m.paymentType === 'cash' ? params.cashYear : params.deductYear);
+                const payM = m.payMonth || (m.paymentType === 'cash' ? params.cashMonth : params.deductMonth);
+                const payD = m.payDay || (m.paymentType === 'cash' ? params.cashDay : params.deductDay);
+
+                // Payment note text generation
+                const paymentNote = m.paymentType === 'cash'
+                    ? `(於 <span class="font-semibold">${payY}</span>年<span class="font-semibold">${payM}</span>月<span class="font-semibold">${payD}</span>日現金繳納)`
+                    : `(於 <span class="font-semibold">${payY}</span>年<span class="font-semibold">${payM}</span>月<span class="font-semibold">${payD}</span>日之薪資扣款)`;
+
+                return `
+                <div class="receipt-card bg-white rounded-lg shadow-sm border border-gray-300 p-2 relative overflow-hidden">
+                    <div class="grid grid-cols-2 gap-2.5 relative h-full">
+
+                        <!-- LEFT COLUMN: 存根聯 (Stub Copy) -->
+                        <div class="p-1.5 bg-slate-50/70 border border-slate-200 rounded relative flex flex-col justify-between">
+                            <div class="text-center border-b border-gray-300 pb-0.5 mb-0.5">
+                                <h3 class="font-bold receipt-title tracking-wider text-blue-950">
+                                    佳林國中營養午餐費收據
+                                </h3>
+                                <div class="text-[9.5pt] font-semibold text-slate-600">
+                                    【存根聯 - 學校留存】
+                                </div>
+                            </div>
+
+                            <div class="space-y-0.5 receipt-text text-gray-800">
+                                <div>
+                                    茲收到 <span class="font-bold border-b border-black px-1.5 py-0.5">${m.name || '______'}</span> ${m.title || '老師/先生/小姐'}
+                                </div>
+                                <div class="font-medium">
+                                    繳交佳林國中營養午餐費
+                                </div>
+                                <div>
+                                    期程：<span class="font-semibold">${params.startYear}</span>年<span class="font-semibold">${params.startMonth}</span>月 至 
+                                    <span class="font-semibold">${params.endYear}</span>年<span class="font-semibold">${params.endMonth}</span>月
+                                </div>
+                                <div>
+                                    新台幣：<span class="font-bold text-blue-900 border-b border-black px-1.5">${chineseFee}</span> 元整
+                                    <span class="text-gray-500 font-mono text-[9pt] ml-0.5">(NT$ ${m.fee.toLocaleString()})</span>
+                                </div>
+                                <div class="text-gray-600 receipt-subtext">
+                                    ${paymentNote}
+                                </div>
+                            </div>
+
+                            <div class="pt-0.5 flex justify-between items-center border-t border-gray-300 mt-0.5 receipt-subtext">
+                                <span>經手人：<span class="font-semibold border-b border-gray-400 px-1">${params.handlerName}</span></span>
+                                <span class="text-gray-700 font-medium">${params.rightBottomNote}</span>
+                            </div>
+                        </div>
+
+                        <!-- CUTTING LINE INDICATOR -->
+                        <div class="absolute top-0 bottom-0 left-1/2 -ml-1 flex items-center justify-center pointer-events-none z-10">
+                            <div class="h-full border-r-2 border-dashed border-gray-400"></div>
+                        </div>
+
+                        <!-- RIGHT COLUMN: 收執聯 (Recipient Copy) -->
+                        <div class="p-1.5 bg-white border border-blue-200 rounded relative flex flex-col justify-between">
+                            <div class="text-center border-b border-gray-300 pb-0.5 mb-0.5">
+                                <h3 class="font-bold receipt-title tracking-wider text-blue-950">
+                                    佳林國中營養午餐費收據
+                                </h3>
+                                <div class="text-[9.5pt] font-semibold text-blue-700">
+                                    【收執聯 - 繳款人留存】
+                                </div>
+                            </div>
+
+                            <div class="space-y-0.5 receipt-text text-gray-800">
+                                <div>
+                                    茲收到 <span class="font-bold border-b border-black px-1.5 py-0.5">${m.name || '______'}</span> ${m.title || '老師/先生/小姐'}
+                                </div>
+                                <div class="font-medium">
+                                    繳交佳林國中營養午餐費
+                                </div>
+                                <div>
+                                    期程：<span class="font-semibold">${params.startYear}</span>年<span class="font-semibold">${params.startMonth}</span>月 至 
+                                    <span class="font-semibold">${params.endYear}</span>年<span class="font-semibold">${params.endMonth}</span>月
+                                </div>
+                                <div>
+                                    新台幣：<span class="font-bold text-blue-900 border-b border-black px-1.5">${chineseFee}</span> 元整
+                                    <span class="text-gray-500 font-mono text-[9pt] ml-0.5">(NT$ ${m.fee.toLocaleString()})</span>
+                                </div>
+                                <div class="text-gray-600 receipt-subtext">
+                                    ${paymentNote}
+                                </div>
+                            </div>
+
+                            <div class="pt-0.5 flex justify-between items-center border-t border-gray-300 mt-0.5 receipt-subtext">
+                                <span>經手人：<span class="font-semibold border-b border-gray-400 px-1">${params.handlerName}</span></span>
+                                <span class="text-gray-700 font-medium">${params.rightBottomNote}</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        // Print Trigger
+        function triggerPrint() {
+            if (members.length === 0) {
+                showToast('目前沒有收據可供列印！請先匯入或載入資料。', 'error');
+                return;
+            }
+            window.print();
+        }
+    </script>
+</body>
+</html>
