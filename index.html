@@ -144,29 +144,25 @@
                     </div>
                 </div>
 
-                <!-- Salary Deduction Date -->
+                <!-- Salary Deduction Date with Calendar Picker -->
                 <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1">薪資扣款預設日期</label>
-                    <div class="flex gap-1 items-center">
-                        <input type="number" id="deductYear" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="115">
-                        <span class="text-xs text-gray-500">年</span>
-                        <input type="number" id="deductMonth" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="9" min="1" max="12">
-                        <span class="text-xs text-gray-500">月</span>
-                        <input type="number" id="deductDay" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="5" min="1" max="31">
-                        <span class="text-xs text-gray-500">日</span>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1 flex items-center justify-between">
+                        <span><i class="fa-regular fa-calendar-check text-blue-600 mr-1"></i>薪資扣款預設日期</span>
+                    </label>
+                    <input type="date" id="deductDate" class="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer shadow-sm" value="2026-09-05">
+                    <div id="deductDateRoc" class="text-[11px] text-blue-700 font-medium mt-1 truncate">
+                        民國 115 年 9 月 5 日
                     </div>
                 </div>
 
-                <!-- Cash Payment Date -->
+                <!-- Cash Payment Date with Calendar Picker -->
                 <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1">現金繳納預設日期</label>
-                    <div class="flex gap-1 items-center">
-                        <input type="number" id="cashYear" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="115">
-                        <span class="text-xs text-gray-500">年</span>
-                        <input type="number" id="cashMonth" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="9" min="1" max="12">
-                        <span class="text-xs text-gray-500">月</span>
-                        <input type="number" id="cashDay" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" value="10" min="1" max="31">
-                        <span class="text-xs text-gray-500">日</span>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1 flex items-center justify-between">
+                        <span><i class="fa-regular fa-calendar-days text-amber-600 mr-1"></i>現金繳納預設日期</span>
+                    </label>
+                    <input type="date" id="cashDate" class="w-full border border-gray-300 rounded px-2.5 py-1.5 text-xs sm:text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white cursor-pointer shadow-sm" value="2026-09-10">
+                    <div id="cashDateRoc" class="text-[11px] text-amber-700 font-medium mt-1 truncate">
+                        民國 115 年 9 月 10 日
                     </div>
                 </div>
 
@@ -303,12 +299,46 @@
         // Data State
         let members = [];
 
+        // Convert Gregorian YYYY-MM-DD to ROC { year, month, day, rocText }
+        function parseDateToRoc(dateString) {
+            if (!dateString) return { year: '', month: '', day: '', rocText: '' };
+            const parts = dateString.split('-');
+            if (parts.length === 3) {
+                const gYear = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10);
+                const day = parseInt(parts[2], 10);
+                if (!isNaN(gYear) && !isNaN(month) && !isNaN(day)) {
+                    const rocYear = gYear > 1911 ? gYear - 1911 : gYear;
+                    return {
+                        year: String(rocYear),
+                        month: String(month),
+                        day: String(day),
+                        rocText: `民國 ${rocYear} 年 ${month} 月 ${day} 日`
+                    };
+                }
+            }
+            return { year: '', month: '', day: '', rocText: '' };
+        }
+
+        // Convert ROC year, month, day to YYYY-MM-DD for input[type="date"]
+        function rocToDateString(rocY, m, d) {
+            if (!rocY || !m || !d) return '';
+            let yNum = parseInt(rocY, 10);
+            if (isNaN(yNum)) return '';
+            if (yNum < 1911) {
+                yNum += 1911;
+            }
+            const mStr = String(m).padStart(2, '0');
+            const dStr = String(d).padStart(2, '0');
+            return `${yNum}-${mStr}-${dStr}`;
+        }
+
         // DOM Ready
         document.addEventListener("DOMContentLoaded", () => {
             setupDragAndDrop();
             
             // Listen to inputs for dynamic updates
-            const inputs = ['startYear', 'startMonth', 'endYear', 'endMonth', 'deductYear', 'deductMonth', 'deductDay', 'cashYear', 'cashMonth', 'cashDay', 'handlerName', 'rightBottomNote'];
+            const inputs = ['startYear', 'startMonth', 'endYear', 'endMonth', 'deductDate', 'cashDate', 'handlerName', 'rightBottomNote'];
             inputs.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.addEventListener('input', renderReceipts);
@@ -429,14 +459,23 @@
                             paymentType = 'cash';
                         }
 
-                        let payYear = '', payMonth = '', payDay = '';
+                        let payDate = '', payYear = '', payMonth = '', payDay = '';
                         if (dateKey && row[dateKey]) {
                             const dateStr = String(row[dateKey]);
                             const matches = dateStr.match(/\d+/g);
                             if (matches && matches.length >= 3) {
-                                payYear = matches[0];
-                                payMonth = matches[1];
-                                payDay = matches[2];
+                                let y = parseInt(matches[0], 10);
+                                let m = parseInt(matches[1], 10);
+                                let d = parseInt(matches[2], 10);
+                                if (y > 1911) {
+                                    payYear = String(y - 1911);
+                                    payDate = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                } else {
+                                    payYear = String(y);
+                                    payDate = `${y + 1911}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                                }
+                                payMonth = String(m);
+                                payDay = String(d);
                             }
                         }
 
@@ -446,6 +485,7 @@
                             title: title,
                             fee: fee,
                             paymentType: paymentType,
+                            payDate: payDate,
                             payYear: payYear,
                             payMonth: payMonth,
                             payDay: payDay
@@ -467,11 +507,11 @@
 
         function loadDemoData() {
             members = [
-                { id: 1, name: '張哲銘', title: '老師', fee: 1250, paymentType: 'deduct', payYear: '', payMonth: '', payDay: '' },
-                { id: 2, name: '林雅婷', title: '老師', fee: 1250, paymentType: 'deduct', payYear: '', payMonth: '', payDay: '' },
-                { id: 3, name: '陳建志', title: '先生', fee: 1200, paymentType: 'cash', payYear: '115', payMonth: '9', payDay: '12' },
-                { id: 4, name: '黃淑惠', title: '小姐', fee: 1250, paymentType: 'deduct', payYear: '', payMonth: '', payDay: '' },
-                { id: 5, name: '王大同', title: '老師', fee: 1300, paymentType: 'cash', payYear: '', payMonth: '', payDay: '' }
+                { id: 1, name: '張哲銘', title: '老師', fee: 1250, paymentType: 'deduct', payDate: '', payYear: '', payMonth: '', payDay: '' },
+                { id: 2, name: '林雅婷', title: '老師', fee: 1250, paymentType: 'deduct', payDate: '', payYear: '', payMonth: '', payDay: '' },
+                { id: 3, name: '陳建志', title: '先生', fee: 1200, paymentType: 'cash', payDate: '2026-09-12', payYear: '115', payMonth: '9', payDay: '12' },
+                { id: 4, name: '黃淑惠', title: '小姐', fee: 1250, paymentType: 'deduct', payDate: '', payYear: '', payMonth: '', payDay: '' },
+                { id: 5, name: '王大同', title: '老師', fee: 1300, paymentType: 'cash', payDate: '', payYear: '', payMonth: '', payDay: '' }
             ];
             renderTable();
             renderReceipts();
@@ -499,6 +539,7 @@
                 title: '老師',
                 fee: 1200,
                 paymentType: 'deduct',
+                payDate: '',
                 payYear: '',
                 payMonth: '',
                 payDay: ''
@@ -589,11 +630,24 @@
                     // Restore global settings if present
                     if (parsed.settings) {
                         const s = parsed.settings;
-                        const fields = ['startYear', 'startMonth', 'endYear', 'endMonth', 
-                                       'deductYear', 'deductMonth', 'deductDay', 
-                                       'cashYear', 'cashMonth', 'cashDay', 
-                                       'handlerName', 'rightBottomNote'];
-                        fields.forEach(f => {
+                        if (s.deductDate) {
+                            const el = document.getElementById('deductDate');
+                            if (el) el.value = s.deductDate;
+                        } else if (s.deductYear && s.deductMonth && s.deductDay) {
+                            const el = document.getElementById('deductDate');
+                            if (el) el.value = rocToDateString(s.deductYear, s.deductMonth, s.deductDay);
+                        }
+
+                        if (s.cashDate) {
+                            const el = document.getElementById('cashDate');
+                            if (el) el.value = s.cashDate;
+                        } else if (s.cashYear && s.cashMonth && s.cashDay) {
+                            const el = document.getElementById('cashDate');
+                            if (el) el.value = rocToDateString(s.cashYear, s.cashMonth, s.cashDay);
+                        }
+
+                        const otherFields = ['startYear', 'startMonth', 'endYear', 'endMonth', 'handlerName', 'rightBottomNote'];
+                        otherFields.forEach(f => {
                             const el = document.getElementById(f);
                             if (el && s[f] !== undefined) {
                                 el.value = s[f] === '___' || s[f] === '__' || s[f] === '________' ? '' : s[f];
@@ -652,6 +706,32 @@
             }
         }
 
+        function updateMemberDate(id, dateVal) {
+            const member = members.find(m => m.id === id);
+            if (member) {
+                member.payDate = dateVal;
+                const roc = parseDateToRoc(dateVal);
+                member.payYear = roc.year;
+                member.payMonth = roc.month;
+                member.payDay = roc.day;
+                renderTable();
+                renderReceipts();
+            }
+        }
+
+        function clearMemberDate(id) {
+            const member = members.find(m => m.id === id);
+            if (member) {
+                member.payDate = '';
+                member.payYear = '';
+                member.payMonth = '';
+                member.payDay = '';
+                renderTable();
+                renderReceipts();
+                showToast('已重設為預設日期', 'info');
+            }
+        }
+
         function renderTable() {
             const container = document.getElementById('dataListContainer');
             const tbody = document.getElementById('memberTableBody');
@@ -688,15 +768,16 @@
                         </select>
                     </td>
                     <td class="p-2.5">
-                        <div class="flex items-center gap-1 text-xs">
-                            <input type="number" class="w-12 border border-gray-200 rounded px-1 py-1 text-center focus:ring-1 focus:ring-blue-500"
-                                   placeholder="年" value="${m.payYear || ''}" onchange="updateMember(${m.id}, 'payYear', this.value)">
-                            <span>/</span>
-                            <input type="number" class="w-10 border border-gray-200 rounded px-1 py-1 text-center focus:ring-1 focus:ring-blue-500"
-                                   placeholder="月" value="${m.payMonth || ''}" onchange="updateMember(${m.id}, 'payMonth', this.value)">
-                            <span>/</span>
-                            <input type="number" class="w-10 border border-gray-200 rounded px-1 py-1 text-center focus:ring-1 focus:ring-blue-500"
-                                   placeholder="日" value="${m.payDay || ''}" onchange="updateMember(${m.id}, 'payDay', this.value)">
+                        <div class="flex items-center gap-1.5">
+                            <input type="date" class="border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer"
+                                   value="${m.payDate || (m.payYear ? rocToDateString(m.payYear, m.payMonth, m.payDay) : '')}"
+                                   onchange="updateMemberDate(${m.id}, this.value)">
+                            ${(m.payDate || m.payYear) ? `
+                                <button onclick="clearMemberDate(${m.id})" title="清除個別日期，套用預設" class="text-gray-400 hover:text-red-600 text-xs px-1">
+                                    <i class="fa-solid fa-rotate-left"></i>
+                                </button>
+                                <span class="text-[11px] text-blue-700 font-medium whitespace-nowrap">民國${m.payYear}年</span>
+                            ` : `<span class="text-[11px] text-gray-400 whitespace-nowrap">套用預設</span>`}
                         </div>
                     </td>
                     <td class="p-2.5">
@@ -717,17 +798,32 @@
 
         // Get Current System Inputs
         function getSystemParams() {
+            const deductVal = document.getElementById('deductDate')?.value || '';
+            const cashVal = document.getElementById('cashDate')?.value || '';
+
+            const deductRoc = parseDateToRoc(deductVal);
+            const cashRoc = parseDateToRoc(cashVal);
+
+            // Update ROC date feedback badge in UI
+            const deductBadge = document.getElementById('deductDateRoc');
+            if (deductBadge) deductBadge.innerText = deductRoc.rocText || '尚未選取日期';
+
+            const cashBadge = document.getElementById('cashDateRoc');
+            if (cashBadge) cashBadge.innerText = cashRoc.rocText || '尚未選取日期';
+
             return {
                 startYear: document.getElementById('startYear').value || '___',
                 startMonth: document.getElementById('startMonth').value || '__',
                 endYear: document.getElementById('endYear').value || '___',
                 endMonth: document.getElementById('endMonth').value || '__',
-                deductYear: document.getElementById('deductYear').value || '___',
-                deductMonth: document.getElementById('deductMonth').value || '__',
-                deductDay: document.getElementById('deductDay').value || '__',
-                cashYear: document.getElementById('cashYear').value || '___',
-                cashMonth: document.getElementById('cashMonth').value || '__',
-                cashDay: document.getElementById('cashDay').value || '__',
+                deductDate: deductVal,
+                deductYear: deductRoc.year || '___',
+                deductMonth: deductRoc.month || '__',
+                deductDay: deductRoc.day || '__',
+                cashDate: cashVal,
+                cashYear: cashRoc.year || '___',
+                cashMonth: cashRoc.month || '__',
+                cashDay: cashRoc.day || '__',
                 handlerName: document.getElementById('handlerName').value || '________',
                 rightBottomNote: document.getElementById('rightBottomNote').value || ''
             };
